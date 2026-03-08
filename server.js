@@ -247,6 +247,44 @@ io.on('connection', (socket) => {
   });
 });
 
+// ─── Periodic cleanup ────────────────────────────────────────────────────────
+//
+// Runs every hour to evict any rooms that have no listeners and purge their
+// track databases.  The disconnect handler already handles the common case;
+// this catches edge cases such as orphaned room databases whose in-memory
+// state was lost (e.g. after a hot-reload during development).
+
+async function cleanupEmptyRooms() {
+  let roomsCleaned = 0;
+  let dbsCleaned = 0;
+
+  // 1. Remove in-memory rooms with no listeners and purge their databases.
+  for (const [roomId, room] of [...rooms]) {
+    if (room.listeners.size === 0) {
+      rooms.delete(roomId);
+      await purgeRoomDb(roomId);
+      roomsCleaned++;
+    }
+  }
+
+  // 2. Purge any room databases that have no matching in-memory room.
+  for (const roomId of [...roomDbs.keys()]) {
+    if (!rooms.has(roomId)) {
+      await purgeRoomDb(roomId);
+      dbsCleaned++;
+    }
+  }
+
+  if (roomsCleaned > 0 || dbsCleaned > 0) {
+    console.log(
+      `[cleanup] removed ${roomsCleaned} empty room(s), purged ${dbsCleaned} orphaned DB(s)`
+    );
+  }
+}
+
+const CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+setInterval(cleanupEmptyRooms, CLEANUP_INTERVAL_MS);
+
 // ─── Start ───────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
