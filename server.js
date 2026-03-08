@@ -20,14 +20,50 @@ const io = new Server(server);
 
 // PouchDB with LevelDB adapter, persisted in ./data/
 const ServerPouchDB = PouchDB.defaults({ prefix: dataDir + path.sep });
-const musicDb = new ServerPouchDB('music');
+
+// One PouchDB per room, created on first access.
+// express-pouchdb serves ALL databases under the prefix, so clients can sync
+// to /db/<roomDbName> without any extra configuration.
+const roomDbs = new Map(); // roomId → PouchDB instance
+
+function roomDbName(roomId) {
+  // Must be stable and the same on client + server.
+  // PouchDB names: letters, digits, _, -, $, (, ), +, /
+  return 'room_' + roomId.toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+}
+
+function getRoomDb(roomId) {
+  if (!roomDbs.has(roomId)) {
+    roomDbs.set(roomId, new ServerPouchDB(roomDbName(roomId)));
+  }
+  return roomDbs.get(roomId);
+}
+
+// Bulk-delete every track document in a room's DB.
+// We use soft-delete (not db.destroy) so that express-pouchdb's cached
+// instance stays valid and connected clients receive the deletions via their
+// live change feed before they disconnect.
+async function purgeRoomDb(roomId) {
+  const db = roomDbs.get(roomId);
+  if (!db) return;
+  try {
+    const { rows } = await db.allDocs();
+    const deletions = rows.map(r => ({ _id: r.id, _rev: r.value.rev, _deleted: true }));
+    if (deletions.length) await db.bulkDocs(deletions);
+    console.log(`[room ${roomId}] purged ${deletions.length} track(s)`);
+  } catch (err) {
+    console.error(`[room ${roomId}] purge error:`, err);
+  }
+  roomDbs.delete(roomId);
+}
 
 // Serve static frontend
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
-// Expose PouchDB HTTP API for client-side sync
-// Clients use: db.sync('/db/music', { live: true, retry: true })
+// Expose PouchDB HTTP API for client-side sync.
+// express-pouchdb serves every DB under the prefix, so /db/room_<name>
+// is available automatically as soon as the first document is written.
 app.use('/db', expressPouchDB(ServerPouchDB, { mode: 'minimumForPouchDB' }));
 
 // ─── Upload endpoint ────────────────────────────────────────────────────────
@@ -41,6 +77,9 @@ const upload = multer({
 app.post('/upload', upload.single('audio'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No audio file provided' });
+
+    const { roomId } = req.body;
+    if (!roomId) return res.status(400).json({ error: 'roomId is required' });
 
     // Extract ID3 / Vorbis / AAC tags from the buffer
     let title, artist, album, picture;
@@ -72,7 +111,7 @@ app.post('/upload', upload.single('audio'), async (req, res) => {
       };
     }
 
-    await musicDb.put({
+    await getRoomDb(roomId).put({
       _id: id,
       type: 'track',
       title,
@@ -131,7 +170,10 @@ io.on('connection', (socket) => {
       if (prev) {
         prev.listeners.delete(socket.id);
         io.to(currentRoom).emit('listeners', [...prev.listeners.values()]);
-        if (prev.listeners.size === 0) rooms.delete(currentRoom);
+        if (prev.listeners.size === 0) {
+          rooms.delete(currentRoom);
+          purgeRoomDb(currentRoom);
+        }
       }
     }
 
@@ -197,7 +239,10 @@ io.on('connection', (socket) => {
     if (!room) return;
     room.listeners.delete(socket.id);
     io.to(currentRoom).emit('listeners', [...room.listeners.values()]);
-    if (room.listeners.size === 0) rooms.delete(currentRoom);
+    if (room.listeners.size === 0) {
+      rooms.delete(currentRoom);
+      purgeRoomDb(currentRoom); // fire-and-forget; logs on completion
+    }
   });
 });
 

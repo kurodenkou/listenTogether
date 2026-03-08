@@ -19,6 +19,11 @@ function escHtml(str) {
 const AVATAR_COLORS = ['#7c6eff','#e94560','#4caf7d','#ff9800','#00bcd4','#e91e63','#2196f3'];
 function avatarColor(i) { return AVATAR_COLORS[i % AVATAR_COLORS.length]; }
 
+// Must match the server-side roomDbName() exactly.
+function roomDbName(roomId) {
+  return 'room_' + roomId.toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+}
+
 // ── DOM refs ─────────────────────────────────────────────────────────────────
 const joinScreen       = $('join-screen');
 const mainScreen       = $('main-screen');
@@ -73,9 +78,10 @@ let db = null;
 let dbSync = null;
 
 function initDB() {
-  db = new PouchDB('listenTogether_music');
+  // Use a room-scoped local DB so each room starts with a clean slate.
+  db = new PouchDB(roomDbName(state.roomId));
 
-  dbSync = db.sync(`${location.origin}/db/music`, {
+  dbSync = db.sync(`${location.origin}/db/${roomDbName(state.roomId)}`, {
     live: true,
     retry: true,
   }).on('change', () => {
@@ -349,6 +355,7 @@ uploadConfirmBtn.addEventListener('click', async () => {
     showUploadStatus(`Uploading ${i + 1}/${files.length}…`);
     const fd = new FormData();
     fd.append('audio', file);
+    fd.append('roomId', state.roomId);
     try {
       const res = await fetch('/upload', { method: 'POST', body: fd });
       if (!res.ok) throw new Error((await res.json()).error || res.statusText);
@@ -383,7 +390,7 @@ syncBtn.addEventListener('click', async () => {
   syncBtn.classList.add('syncing');
   syncBtn.disabled = true;
   try {
-    await db.replicate.from(`${location.origin}/db/music`);
+    await db.replicate.from(`${location.origin}/db/${roomDbName(state.roomId)}`);
     await loadTracks();
   } catch (err) {
     console.warn('[manual sync error]', err);
