@@ -212,7 +212,12 @@ header {
   color: var(--text-muted);
 }
 
-.upload-toggle-btn {
+.library-actions {
+  display: flex;
+  gap: 5px;
+}
+
+.icon-btn {
   background: var(--accent);
   border: none;
   border-radius: 6px;
@@ -225,9 +230,13 @@ header {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background .15s;
+  transition: background .15s, transform .2s;
 }
-.upload-toggle-btn:hover { background: var(--accent-dark); }
+.icon-btn:hover { background: var(--accent-dark); }
+
+.sync-btn { font-size: .95rem; }
+.sync-btn.syncing { animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 
 /* Upload panel */
 .upload-panel {
@@ -237,6 +246,12 @@ header {
   flex-direction: column;
   gap: 8px;
   flex-shrink: 0;
+}
+
+.upload-hint {
+  font-size: .76rem;
+  color: var(--text-muted);
+  line-height: 1.4;
 }
 
 .upload-panel input[type="text"] {
@@ -369,6 +384,17 @@ header {
   border-color: var(--accent);
 }
 .album-art-icon { font-size: 4rem; color: var(--text-muted); }
+
+.cover-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 13px;
+  position: absolute;
+  inset: 0;
+}
+
+.album-art { position: relative; overflow: hidden; }
 
 /* Track meta */
 .track-meta { text-align: center; }
