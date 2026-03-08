@@ -10,9 +10,10 @@ const expressPouchDB = require('express-pouchdb');
 const multer = require('multer');
 const mm = require('music-metadata');
 
-// Ensure data directory exists
+// Wipe all persisted room data on startup — rooms are ephemeral.
 const dataDir = path.join(__dirname, 'data');
-if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+if (fs.existsSync(dataDir)) fs.rmSync(dataDir, { recursive: true, force: true });
+fs.mkdirSync(dataDir, { recursive: true });
 
 const app = express();
 const server = http.createServer(app);
