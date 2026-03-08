@@ -29,10 +29,9 @@ const roomBadge        = $('room-badge');
 const listenersWrap    = $('listeners-wrap');
 const leaveBtn         = $('leave-btn');
 
+const syncBtn          = $('sync-btn');
 const uploadToggleBtn  = $('upload-toggle-btn');
 const uploadPanel      = $('upload-panel');
-const uploadTitle      = $('upload-title');
-const uploadArtist     = $('upload-artist');
 const uploadFile       = $('upload-file');
 const fileLabelText    = $('file-label-text');
 const uploadConfirmBtn = $('upload-confirm-btn');
@@ -41,6 +40,8 @@ const uploadStatus     = $('upload-status');
 
 const trackListEl      = $('track-list');
 const albumArt         = $('album-art');
+const coverImg         = $('cover-img');
+const albumArtIcon     = $('album-art-icon');
 const trackTitleEl     = $('track-title-display');
 const trackArtistEl    = $('track-artist-display');
 const playPauseBtn     = $('play-pause-btn');
@@ -198,6 +199,23 @@ async function loadTrackIntoPlayer(trackId, startAt = 0) {
   trackArtistEl.textContent = track ? track.artist : '';
   renderTrackList(); // update active highlight
 
+  // Load cover art if available
+  if (track && track.hasCover) {
+    try {
+      const blob = await db.getAttachment(trackId, 'cover');
+      const url  = URL.createObjectURL(blob);
+      coverImg.src = url;
+      coverImg.classList.remove('hidden');
+      albumArtIcon.classList.add('hidden');
+    } catch (_) {
+      coverImg.classList.add('hidden');
+      albumArtIcon.classList.remove('hidden');
+    }
+  } else {
+      coverImg.classList.add('hidden');
+    albumArtIcon.classList.remove('hidden');
+  }
+
   // Load audio from PouchDB attachment
   const url = await getBlobUrl(trackId);
   if (!url) {
@@ -309,43 +327,42 @@ audioEl.volume = 0.8;
 // ── Upload ────────────────────────────────────────────────────────────────────
 uploadToggleBtn.addEventListener('click', () => {
   uploadPanel.classList.toggle('hidden');
-  if (!uploadPanel.classList.contains('hidden')) uploadTitle.focus();
 });
 
 uploadFile.addEventListener('change', () => {
-  fileLabelText.textContent = uploadFile.files[0]
-    ? uploadFile.files[0].name
-    : 'Choose audio file…';
+  const n = uploadFile.files.length;
+  fileLabelText.textContent = n === 0
+    ? 'Choose audio file…'
+    : n === 1 ? uploadFile.files[0].name : `${n} files selected`;
 });
 
 uploadCancelBtn.addEventListener('click', resetUploadForm);
 
 uploadConfirmBtn.addEventListener('click', async () => {
-  const file = uploadFile.files[0];
-  if (!file) { showUploadStatus('Please choose an audio file.'); return; }
-
-  const title  = uploadTitle.value.trim()  || file.name.replace(/\.[^.]+$/, '');
-  const artist = uploadArtist.value.trim() || 'Unknown';
+  const files = [...uploadFile.files];
+  if (!files.length) { showUploadStatus('Please choose at least one audio file.'); return; }
 
   uploadConfirmBtn.disabled = true;
-  showUploadStatus('Uploading…');
 
-  const fd = new FormData();
-  fd.append('audio',  file);
-  fd.append('title',  title);
-  fd.append('artist', artist);
-
-  try {
-    const res = await fetch('/upload', { method: 'POST', body: fd });
-    if (!res.ok) throw new Error((await res.json()).error || res.statusText);
-    showUploadStatus('Upload complete!');
-    setTimeout(resetUploadForm, 1500);
-    // PouchDB live sync will deliver the new track to all clients automatically
-  } catch (err) {
-    showUploadStatus('Upload failed: ' + err.message);
-  } finally {
-    uploadConfirmBtn.disabled = false;
+  let ok = 0;
+  for (const [i, file] of files.entries()) {
+    showUploadStatus(`Uploading ${i + 1}/${files.length}…`);
+    const fd = new FormData();
+    fd.append('audio', file);
+    try {
+      const res = await fetch('/upload', { method: 'POST', body: fd });
+      if (!res.ok) throw new Error((await res.json()).error || res.statusText);
+      ok++;
+    } catch (err) {
+      showUploadStatus(`Failed "${file.name}": ${err.message}`);
+      uploadConfirmBtn.disabled = false;
+      return;
+    }
   }
+
+  showUploadStatus(`${ok} track${ok !== 1 ? 's' : ''} uploaded!`);
+  setTimeout(resetUploadForm, 1500);
+  uploadConfirmBtn.disabled = false;
 });
 
 function showUploadStatus(msg) {
@@ -356,11 +373,25 @@ function showUploadStatus(msg) {
 function resetUploadForm() {
   uploadPanel.classList.add('hidden');
   uploadStatus.classList.add('hidden');
-  uploadTitle.value  = '';
-  uploadArtist.value = '';
-  uploadFile.value   = '';
+  uploadFile.value = '';
   fileLabelText.textContent = 'Choose audio file…';
 }
+
+// ── Sync button ───────────────────────────────────────────────────────────────
+syncBtn.addEventListener('click', async () => {
+  if (!db) return;
+  syncBtn.classList.add('syncing');
+  syncBtn.disabled = true;
+  try {
+    await db.replicate.from(`${location.origin}/db/music`);
+    await loadTracks();
+  } catch (err) {
+    console.warn('[manual sync error]', err);
+  } finally {
+    syncBtn.classList.remove('syncing');
+    syncBtn.disabled = false;
+  }
+});
 
 // ── Listeners display ─────────────────────────────────────────────────────────
 function renderListeners(listeners) {

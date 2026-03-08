@@ -8,6 +8,7 @@ const { Server } = require('socket.io');
 const PouchDB = require('pouchdb');
 const expressPouchDB = require('express-pouchdb');
 const multer = require('multer');
+const mm = require('music-metadata');
 
 // Ensure data directory exists
 const dataDir = path.join(__dirname, 'data');
@@ -41,24 +42,48 @@ app.post('/upload', upload.single('audio'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No audio file provided' });
 
-    const { title, artist } = req.body;
+    // Extract ID3 / Vorbis / AAC tags from the buffer
+    let title, artist, album, picture;
+    try {
+      const meta = await mm.parseBuffer(req.file.buffer, { mimeType: req.file.mimetype });
+      title   = meta.common.title;
+      artist  = meta.common.artist || (meta.common.artists || []).join(', ');
+      album   = meta.common.album;
+      picture = meta.common.picture && meta.common.picture[0]; // first embedded image
+    } catch (_) { /* metadata unavailable — fall through to filename */ }
+
+    // Fallback to filename (strip extension)
+    if (!title) title = req.file.originalname.replace(/\.[^.]+$/, '');
+    if (!artist) artist = 'Unknown';
+
     const id = `track_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+    const attachments = {
+      audio: {
+        content_type: req.file.mimetype,
+        data: req.file.buffer.toString('base64'),
+      },
+    };
+
+    if (picture) {
+      attachments.cover = {
+        content_type: picture.format,
+        data: Buffer.from(picture.data).toString('base64'),
+      };
+    }
 
     await musicDb.put({
       _id: id,
       type: 'track',
-      title: (title || req.file.originalname).replace(/\.[^.]+$/, ''),
-      artist: artist || 'Unknown',
+      title,
+      artist,
+      album: album || null,
       uploadedAt: new Date().toISOString(),
-      _attachments: {
-        audio: {
-          content_type: req.file.mimetype,
-          data: req.file.buffer.toString('base64'),
-        },
-      },
+      hasCover: !!picture,
+      _attachments: attachments,
     });
 
-    res.json({ ok: true, id });
+    res.json({ ok: true, id, title, artist });
   } catch (err) {
     console.error('Upload error:', err);
     res.status(500).json({ error: err.message });

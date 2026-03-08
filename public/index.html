@@ -41,16 +41,18 @@
       <aside class="library">
         <div class="library-header">
           <span class="library-title">Library</span>
-          <button id="upload-toggle-btn" class="upload-toggle-btn" title="Upload track">＋</button>
+          <div class="library-actions">
+            <button id="sync-btn" class="icon-btn sync-btn" title="Force sync">&#8635;</button>
+            <button id="upload-toggle-btn" class="icon-btn upload-toggle-btn" title="Upload track">＋</button>
+          </div>
         </div>
 
         <!-- Upload panel (hidden by default) -->
         <div id="upload-panel" class="upload-panel hidden">
-          <input id="upload-title"  type="text"  placeholder="Track title">
-          <input id="upload-artist" type="text"  placeholder="Artist">
+          <p class="upload-hint">Metadata is read from the file automatically.</p>
           <label class="file-label">
             <span id="file-label-text">Choose audio file…</span>
-            <input id="upload-file"   type="file" accept="audio/*">
+            <input id="upload-file" type="file" accept="audio/*" multiple>
           </label>
           <div class="upload-actions">
             <button id="upload-confirm-btn">Upload</button>
@@ -67,7 +69,8 @@
       <!-- Player -->
       <section class="player">
         <div class="album-art" id="album-art">
-          <span class="album-art-icon">♫</span>
+          <img id="cover-img" class="cover-img hidden" alt="Album art">
+          <span class="album-art-icon" id="album-art-icon">♫</span>
         </div>
 
         <div class="track-meta">
